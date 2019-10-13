@@ -55,21 +55,17 @@ Comp Comp::conj(){
 // 空域高斯滤波器函数
 void Gaussian(Mat input, Mat output,const double (*sigma)[3] , double b);
 // 快速傅里叶变换
-void fastFuriorTransform(Mat output, Comp output_fft[][COLS]);
+void fastFuriorTransform(Mat output, Comp output_fft[][COLS], bool inv = false);
 Comp WN(double n, double N);
 void fft(int M, Comp *input, bool inv);
 void fft2(int M, int N, Comp (*input)[COLS], bool inv);
-// 理想低通滤波器函数
-//Mat ideal_lbrf_kernel(Mat scr,float sigma);
 // 频率域滤波函数
-// src:原图像
-// blur:滤波器函数
-//Mat freqfilt(Mat scr,Mat blur);
+void freqfilt(Mat output, Comp (*input)[COLS], double (*sigma)[COLS]);
 //////////////////////形态学//////////////////
 // 膨胀函数
-//void Dilate(Mat Src, Mat Tem, Mat Dst);
+void Dilate(Mat input, Mat output, Mat SE);
 // 腐蚀函数
-//void Erode(Mat Src, Mat Tem, Mat Dst);
+void Erode(Mat input, Mat output, Mat SE);
 
 int main(int argc, char **argv)
 {
@@ -104,6 +100,10 @@ int main(int argc, char **argv)
         cv::cvtColor(frIn,frIn_grey,CV_BGR2GRAY);
         Mat figure1 = cv::Mat(frIn.rows,frIn.cols,CV_8U);
         Mat figure2 = cv::Mat(frIn.rows,frIn.cols,CV_8U);
+        Mat figure3 = cv::Mat(frIn.rows,frIn.cols,CV_8U);
+        Mat figure4 = cv::Mat(frIn.rows,frIn.cols,CV_8U);
+        Mat figure5 = cv::Mat(frIn.rows,frIn.cols,CV_8U);
+        Mat figure6 = cv::Mat(frIn.rows,frIn.cols,CV_8U);
         // 空域滤波函数
         double blur1[3][3] = {{-1,-1,-1},{-1,8,-1},{-1,-1,-1}};// 滤波器
         Gaussian(frIn_grey,figure1,blur1,1);
@@ -111,16 +111,43 @@ int main(int argc, char **argv)
         Comp output_fft[ROWS][COLS];
         figure2 = frIn_grey.clone();
         fastFuriorTransform(figure2, output_fft);
-        // 频域滤波函数
-        //freqfilt();
+        // 频域滤波
+        double ILPF[ROWS][COLS], BLPF[ROWS][COLS], GLPF[ROWS][COLS];// 滤波算子
+        double r_ILPF = 50, r_BLPF = 50, n_BLPF = 2, r_GLPF = 200;
+        for(int i = 0;i < ROWS;i++){
+            for(int j = 0;j < COLS;j++){
+                double r = sqrt((i - ROWS/2)*(i - ROWS/2) + (j - COLS/2)*(j - COLS/2));
+                if( r < r_ILPF) ILPF[i][j] = 1;
+                else ILPF[i][j] = 0;
+                BLPF[i][j] = 1/(1 + pow(r/r_BLPF, 2*n_BLPF));
+                GLPF[i][j] = pow(M_E, -r*r/(2*r_GLPF*r_GLPF));
+            }
+        }
+        freqfilt(figure3, output_fft, BLPF);
+        //　快速傅里叶逆变换
+        fastFuriorTransform(figure4, output_fft,true);
+        ////////////////////形态学处理////////////////////////
+        Mat SE = cv::Mat(3, 3, CV_8U);
+        for(int i = 0;i < SE.rows;i++){
+            for(int j = 0;j < SE.cols;j++){
+                if(i == 1 || j == 1) SE.at<uchar>(i,j) = 255;
+                else SE.at<uchar>(i,j) = 0;
+            }
+        }
         // 膨胀函数
-        //Dilate();
+        Dilate(frIn_grey, figure5, SE);
         // 腐蚀函数
-        //Erode();
+        Erode(frIn_grey, figure6, SE);
+
         imshow("Origin",frIn);
         imshow("Grey",frIn_grey);
         imshow("Gaussian",figure1);
         imshow("FFT",figure2);
+        imshow("Filter",figure3);
+        imshow("IFFT",figure4);
+        imshow("Dilate",figure5);
+        imshow("Erode",figure6);
+
         ros::spinOnce();
         waitKey(5);
     }
@@ -148,29 +175,49 @@ void Gaussian(const Mat input, Mat output,const double (*sigma)[3] , double b)
     }
 }
 // 快速傅里叶变换
-void fastFuriorTransform(Mat output, Comp output_fft[][COLS]) 
+// output: 输入、输出图像
+// output_fft: 傅里叶变换结果值
+// inv: 是否为傅里叶逆变换
+void fastFuriorTransform(Mat output, Comp output_fft[][COLS], bool inv) 
 {
     int M = output.rows, N = output.cols;
-    for(int i = 0;i < M;i++){
-        for(int j = 0;j < N;j++){
-            output_fft[i][j].real = double(output.at<uchar>(i,j))*pow((-1),(i+j));
-            output_fft[i][j].imag = 0;
+    if(!inv){// 傅里叶正变换
+        for(int i = 0;i < M;i++){
+            for(int j = 0;j < N;j++){
+                output_fft[i][j].real = double(output.at<uchar>(i,j))*pow((-1),(i+j));
+                output_fft[i][j].imag = 0;
+            }
+        }
+        fft2(M, N, output_fft, inv);
+        for(int i = 0;i < M;i++){
+            for(int j = 0;j < N;j++){
+                output.at<uchar>(i,j) = log(1 + output_fft[i][j].spec())/log(1.07);
+                //output.at<uchar>(i,j) = output_fft[i][j].spec()/2000;
+                //if(output_fft[i][j].spec()/2000>255) printf("%f\n",output_fft[i][j].spec()/2000);
+            }
         }
     }
-    fft2(M, N, output_fft, false);
-    for(int i = 0;i < M;i++){
-        for(int j = 0;j < N;j++){
-            output.at<uchar>(i,j) = log(1 + output_fft[i][j].spec())/log(1.07);
-            //if(log(1 + output_fft[i][j].spec())/log(1.07)>255) printf("%f\n",log(1 + output_fft[i][j].spec())/log(1.07));
-            //printf("%f\n",log(1 + output_fft[i][j].spec())/log(1.1));
+    else{// 傅里叶逆变换
+        fft2(M, N, output_fft, inv);
+        for(int i = 0;i < M;i++){
+            for(int j = 0;j < N;j++){
+                output.at<uchar>(i,j) = output_fft[i][j].real*pow(-1, i + j)/(M*N);
+                if(output_fft[i][j].real*pow(-1, i + j)/(M*N)>255) output.at<uchar>(i,j)=255;
+                if(output_fft[i][j].real*pow(-1, i + j)/(M*N) > 255) 
+                    printf("%f\n",output_fft[i][j].real*pow(-1, i + j)/(M*N)); 
+            }
         }
     }
 }
-Comp WN(double n, double N){
+
+Comp WN(double n, double N)
+{
     Comp a(cos(-2*M_PI*n/N), sin(-2*M_PI*n/N));
     return a;
 }
-void fft(int M, Comp *input, bool inv = false){//if inv == true, 逆变换
+
+void fft(int M, Comp *input, bool inv)
+{
     if(M == 1) return;
     static Comp buf[COLS]; 
     int k = M/2;
@@ -191,17 +238,15 @@ void fft(int M, Comp *input, bool inv = false){//if inv == true, 逆变换
         buf[i] = input[i] + x*input[i + k];
         buf[i + k] = input[i] - x*input[i + k];
     }
-    for(int i = 0;i < M;i++){
-        input[i] = buf[i];
-    }
-    
+    for(int i = 0;i < M;i++) input[i] = buf[i];
 }
 
-void fft2(int M, int N, Comp (*input)[COLS], bool inv){
-    
+void fft2(int M, int N, Comp (*input)[COLS], bool inv)
+{    
     for(int i = 0;i < M;i++){
         fft(N, *(input + i), inv);
     }
+
     Comp a[M];
     for(int i = 0;i < N;i++){
         for(int j = 0;j < M;j++){
@@ -215,14 +260,64 @@ void fft2(int M, int N, Comp (*input)[COLS], bool inv){
         }
     }
 }
-// 理想低通滤波器函数
-//Mat ideal_lbrf_kernel(Mat scr,float sigma)
 // 频率域滤波函数
-// src:原图像
-// blur:滤波器函数
-//Mat freqfilt(Mat scr,Mat blur)
+void freqfilt(Mat output, Comp (*input)[COLS], double (*sigma)[COLS]){
+    int M = ROWS, N = COLS;
+    for(int i = 0;i < M;i++){
+        for(int j = 0;j < N;j++){
+            input[i][j].real *= sigma[i][j];
+            input[i][j].imag *= sigma[i][j];
+            output.at<uchar>(i,j) = log(1 + input[i][j].spec())/log(1.07);           
+        }
+    }
+}
 //////////////////////形态学//////////////////
+// 参数 //
+// input：原图像
+// output：处理后图像
+// SE：结构元
+
 // 膨胀函数
-//void Dilate(Mat Src, Mat Tem, Mat Dst)
+void Dilate(Mat input, Mat output, Mat SE)
+{
+    Mat input_binary;
+    cv::threshold(input, input_binary, 145, 255, THRESH_BINARY);
+    for(int i = 1;i < input.rows - 1;i++){
+        for(int j = 1;j < input.cols - 1;j++){
+            int flag = 0;
+            for(int k = 0;k < SE.rows;k++){
+                for(int l = 0;l < SE.cols;l++){
+                    if(SE.at<uchar>(k,l) == input_binary.at<uchar>(i - 1 + k,j - 1 + l) && SE.at<uchar>(k,l) != 0){
+                        flag = 1;
+                        break;
+                    }                    
+                }
+                if(flag == 1) break;
+            }
+            if(flag == 1) output.at<uchar>(i,j) = 255;
+            else output.at<uchar>(i,j) = 0;
+        }
+    }
+}
 // 腐蚀函数
-//void Erode(Mat Src, Mat Tem, Mat Dst)
+void Erode(Mat input, Mat output, Mat SE)
+{
+    Mat input_binary;
+    cv::threshold(input, input_binary, 145, 255, THRESH_BINARY);
+    for(int i = 1;i < input.rows - 1;i++){
+        for(int j = 1;j < input.cols - 1;j++){
+            int flag = 1;
+            for(int k = 0;k < SE.rows;k++){
+                for(int l = 0;l < SE.cols;l++){
+                    if(SE.at<uchar>(k,l) != input_binary.at<uchar>(i - 1 + k,j - 1 + l) && SE.at<uchar>(k,l) != 0){
+                        flag = 0;
+                        break;
+                    }    
+                }
+                if(flag == 0) break;
+            }
+            if(flag == 1) output.at<uchar>(i,j) = 255;
+            else output.at<uchar>(i,j) = 0;
+        }
+    }
+}
