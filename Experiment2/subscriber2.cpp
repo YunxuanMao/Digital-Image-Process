@@ -93,9 +93,12 @@ int main(int argc, char **argv)
         {
             break;
         }
+  
+        
         Mat frIn = frame(cv::Rect(0, 0, COLS, ROWS));//使用笔记本摄像头
-
         // Mat frIn = frame(cv::Rect(0, 0, frame.cols / 2, frame.rows));//截取 zed 的左目图片
+        //int m = getOptimalDFTSize(frIn.rows);
+        //int n = getOptimalDFTSize(frIn.cols);
         Mat frIn_grey = cv::Mat(frIn.rows,frIn.cols,CV_8U);
         cv::cvtColor(frIn,frIn_grey,CV_BGR2GRAY);
         Mat figure1 = cv::Mat(frIn.rows,frIn.cols,CV_8U);
@@ -148,6 +151,18 @@ int main(int argc, char **argv)
         imshow("Dilate",figure5);
         imshow("Erode",figure6);
 
+        geometry_msgs::Twist cmd_red;
+
+		// 车的速度值设置
+		cmd_red.linear.x = LINEAR_X;
+		cmd_red.linear.y = 0;
+		cmd_red.linear.z = 0;
+		cmd_red.angular.x = 0;
+		cmd_red.angular.y = 0;
+		cmd_red.angular.z = 0.2;
+	
+		pub.publish(cmd_red);
+        
         ros::spinOnce();
         waitKey(5);
     }
