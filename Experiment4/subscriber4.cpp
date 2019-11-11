@@ -33,7 +33,6 @@ int main(int argc, char **argv)
 {		
 	//静态功能演示
 	cv::Mat src = imread("./src/image_pkg/src/img2.jpeg");
-	imshow("org",frIn);
 	
 	///////////// Color Segmentation ///////////////
 	color_segment(src);
@@ -89,6 +88,7 @@ int main(int argc, char **argv)
 		// 车的速度值设置
 		if(color == 'r')
 		{
+			printf("Go forward!\n");
 			cmd_red.linear.x = 3;
 			cmd_red.linear.y = 0;
 			cmd_red.linear.z = 0;
@@ -98,6 +98,7 @@ int main(int argc, char **argv)
 		}
 		else if(color == 'g')
 		{
+			printf("Go backward!\n");
 			cmd_red.linear.x = 0;
 			cmd_red.linear.y = 3;
 			cmd_red.linear.z = 0;
@@ -107,6 +108,7 @@ int main(int argc, char **argv)
 		}
 		else if(color == 'b')
 		{
+			printf("Turn right!\n");
 			cmd_red.linear.x = 0;
 			cmd_red.linear.y = 0;
 			cmd_red.linear.z = 0;
@@ -114,14 +116,25 @@ int main(int argc, char **argv)
 			cmd_red.angular.y = 0;
 			cmd_red.angular.z = 5;
 		}
-		else 
+		else if(color == 'y')
 		{
+			printf("Turn left!\n");
 			cmd_red.linear.x = 0;
 			cmd_red.linear.y = 0;
 			cmd_red.linear.z = 0;
 			cmd_red.angular.x = 0;
 			cmd_red.angular.y = 0;
 			cmd_red.angular.z = -5;
+		}
+		else
+		{
+			//printf("No object!\n");
+			//cmd_red.linear.x = 0;
+			//cmd_red.linear.y = 0;
+			//cmd_red.linear.z = 0;
+			//cmd_red.angular.x = 0;
+			//cmd_red.angular.y = 0;
+			//cmd_red.angular.z = 0;
 		}
 		
 	
@@ -322,7 +335,7 @@ void object_color_tracking(cv::Mat src)
 	for(int i = 0;i < contours.size();i++)
 	{
 		Moments mu = moments(contours[i]);//图像矩
-		if(mu.m00 > 50 && mu.m00 < 10000)//排除小轮廓
+		if(mu.m00 < 50000)//排除小轮廓
 		{
 			double pery = arcLength(contours[i],true);//多边形周长
 			approxPolyDP(contours[i], contours_ploy[i], 0.04*pery, true);//多边形边缘拟合
@@ -488,11 +501,12 @@ char object_color_control(cv::Mat src)
 	vector<Vec4i> hierarchy;//图像拓扑信息
 	findContours(src_edge,contours,hierarchy,CV_RETR_CCOMP, CV_CHAIN_APPROX_NONE);
 	// 形状判断
+	int flag =0;
 	vector<vector<Point>> contours_ploy(contours.size());
 	for(int i = 0;i < contours.size();i++)
 	{
 		Moments mu = moments(contours[i]);//图像矩
-		if(mu.m00 > 50 && mu.m00 < 10000)//排除小轮廓
+		if(mu.m00 > 5000)//排除小轮廓
 		{
 			double pery = arcLength(contours[i],true);//多边形周长
 			approxPolyDP(contours[i], contours_ploy[i], 0.04*pery, true);//多边形边缘拟合
@@ -527,15 +541,26 @@ char object_color_control(cv::Mat src)
 						}
 					}
 				}
-				char color;
-				double max_color = (r,max(ye,max(g,b));
-				if(max_color == r) color = 'r';
-				else if(max_color == ye) color = 'ye';
-				else if(max_color == g) color = 'g';
-				else if(max_color == b) color = 'b';
+				char color = 0;
+				double max_color = max(w,max(r,max(ye,max(g,b))));
+				if(int(max_color) == r) color = 'r';
+				else if(int(max_color) == ye) color = 'y';
+				else if(int(max_color) == g) color = 'g';
+				else if(int(max_color) == b) color = 'b';
+				printf("%d,%d,%d,%d,%d,%d\n%d,%c\n",k,w,r,ye,g,b,int(max_color),color);
+				flag = 1;
+				vector<vector<Point>> contours_rec(1);
+				contours_rec[0] = contours[i];
+				drawContours(src, contours_rec , -1, CV_RGB(255, 0, 0),5);//绘制轮廓
+				imshow("src",src);
+				return color;				
 				break;
 			}
 		}
 	}
-	return color;
+	if(flag == 0)
+	{
+		return 0;
+		imshow("src",src);
+	} 
 }
