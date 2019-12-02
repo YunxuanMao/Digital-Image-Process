@@ -1,3 +1,13 @@
+/////////////数字图像处理课程设计//////////////
+// 小车寻找到两个圆柱,并从两个圆柱中间通过
+// 运行代码前需启动小车,输入如下命令
+// cd ~/dashgo_ws
+// roslaunch navigation_imu.launch
+// 无小车可以用rviz试图窗口查看机器人,输入如下命令
+// rosrun rviz rviz -d `rospack find rbx1_nav`/sim.rviz
+// author@Yunxuan 2019.12.2
+////////////////////////////////////////////
+
 #include <stdlib.h>
 #include <cv.h>
 #include <highgui.h>
@@ -13,9 +23,9 @@
 
 #define LINEAR_X 0
 #define N 100
-int object_color_control(cv::Mat src, cv::Rect *rec, int *rec_x, int *rec_y, char *rec_color);
-double max(double a, double b);
-double min(double a, double b);
+#define DIFF_center 100  //与中心的最大差值
+#define DIFF_square 0.1 //两者面积的最大相对差值
+void ROI_GET(cv::Mat src, cv::Mat dst, int square_ROI[2], cv::Point center_ROI[2]);
 
 using namespace cv;
 using namespace std;
@@ -23,18 +33,21 @@ using namespace std;
 int main(int argc, char **argv)
 {
     /////////////////静态测试///////////////
-    int rec_x[N];
-    int rec_y[N];
-    char rec_color[N];
-    Rect rec[N];
-    Mat src = imread("./src/image_pkg/src/img8.jpeg");
-    int rec_num = object_color_control(src, rec, rec_x, rec_y, rec_color);
-    printf("(%d,%d)\n", src.cols, src.rows);
-    for (int i = 0; i < rec_num; i++)
+    Mat src = imread("./src/image_pkg/src/turnright.jpg");
+    Mat dst = Mat(src.rows, src.cols, CV_8UC3);
+    int square_ROI[2];
+    int center_ROI[2];
+    ROI_GET(src, dst, square_ROI, center_ROI);
+    int diff = 0;
+    for (int i = 0; i < 2; i++)
     {
-        printf("(%d,%d,%c)(%d,%d)\n", rec_x[i], rec_y[i], rec_color[i],rec[i].width,rec[i].height);
+        diff += center_ROI[i] / 2;
     }
+    diff = diff - src.cols / 2; //两个柱子中点与图像中心的距离, 正表示在中心右侧, 负表示在左侧
+    printf("%dx%d\n", src.cols, src.rows);
+    printf("diff=%d\n", diff);
 
+    ///////////////主函数/////////////
     VideoCapture capture;
     capture.open(0); //打开zed相机
 
@@ -42,7 +55,7 @@ int main(int argc, char **argv)
     ros::init(argc, argv, "trafficLaneTrack"); //初始化ROS节点
     ros::NodeHandle n;
 
-    //ros::Rate loop_rate(10);//定义速度发布频率
+    ros::Rate loop_rate(10);//定义速度发布频率
     ros::Publisher pub = n.advertise<geometry_msgs::Twist>("/smoother_cmd_vel", 5); //定义速度发布器
 
     if (!capture.isOpened())
@@ -66,10 +79,8 @@ int main(int argc, char **argv)
 
         //Mat frIn = frame(cv::Rect(0, 0, frame.cols / 2, frame.rows));//截取zed的左目图片
         Mat frIn = frame(cv::Rect(0, 0, frame.cols, frame.rows)); //电脑摄像头
-        //imshow("1",frIn);
-        //int rec_num = object_color_control(frIn, rec, rec_x, rec_y, rec_color);
 
-            geometry_msgs::Twist cmd_red;
+        geometry_msgs::Twist cmd_red;
 
         // 车的速度值设置
         cmd_red.linear.x = LINEAR_X;
@@ -89,134 +100,53 @@ int main(int argc, char **argv)
     return 0;
 }
 
-// find the maximum
-double max(double a, double b)
-{
-    double c;
-    if (a < b)
-        c = b;
-    else
-        c = a;
-    return c;
-}
-
-// find the minimum
-double min(double a, double b)
-{
-    double c;
-    if (a > b)
-        c = b;
-    else
-        c = a;
-    return c;
-}
-
 /////////////////// 目标颜色检测 ////////////////////////
 // 检测目标为方形则判断内部颜色
-int object_color_control(cv::Mat src, cv::Rect *rec, int *rec_x, int *rec_y, char *rec_color)
+// 输入图像: src, 输出图像: dst
+// 感兴趣区域面积: square_ROI[2]
+// 感兴趣区域中点坐标: center_ROI[2]
+void ROI_GET(cv::Mat src, cv::Mat dst, int square_ROI[2], Point center_ROI[2])
 {
-    // 高斯滤波
+    /////////////高斯滤波////////////
     Mat src_blur = Mat(src.rows, src.cols, CV_8UC3);
     GaussianBlur(src, src_blur, cv::Size(5, 5), 0, 0);
-    //imshow("Gauss",src_blur);
-    // 二值化处理
-    Mat src_grey = Mat(src.rows, src.cols, CV_8U);
-    Mat src_edge = Mat(src.rows, src.cols, CV_8U);
-    cvtColor(src_blur, src_grey, CV_BGR2GRAY);             //灰度处理
-    equalizeHist(src_grey, src_grey);                      //直方图均衡化
-    threshold(src_grey, src_edge, 0, 255, CV_THRESH_OTSU); //二值化
-    //Canny(src_grey, src_edge, 3, 9, 3);
-    //imshow("Canny",src_edge);
-    // 边缘检测
-    vector<vector<Point>> contours;              //所有边缘点向量
-    vector<Vec4i> hierarchy;                     //图像拓扑信息
-    vector<vector<Point>> contours_rectangle(N); //所有方形边界点的向量
-    findContours(src_edge, contours, hierarchy, CV_RETR_CCOMP, CV_CHAIN_APPROX_NONE);
-    // 形状判断
-    int flag = 0;
-    vector<vector<Point>> contours_ploy(contours.size());
-    int num_rec = 0; //方形的数量
+    ///////////转换为HSV图像/////////
+    Mat src_hsv = Mat(src.rows, src.cols, CV_8UC3);
+    cvtColor(src_blur, src_hsv, CV_BGR2HSV);
+    //////获得mask区域(红色区域)//////
+    Mat mask1 = Mat(src.rows, src.cols, CV_8U);
+    Mat mask2 = Mat(src.rows, src.cols, CV_8U);
+    Mat mask = Mat(src.rows, src.cols, CV_8U);
+    inRange(src_hsv, Scalar(0, 100, 100), Scalar(10, 255, 255), mask1); //mask为二值化图像
+    inRange(src_hsv, Scalar(156, 100, 100), Scalar(180, 255, 255), mask2);
+    add(mask1, mask2, mask);
+    namedWindow("mask", 0);
+    resizeWindow("mask", src.cols / 4, src.rows / 4);
+    imshow("mask", mask);
+    /////////////边缘检测////////////
+    vector<vector<Point>> contours; //边缘点
+    vector<Vec4i> hierarchy;        //图像拓扑信息
+    findContours(mask, contours, hierarchy, CV_RETR_CCOMP, CV_CHAIN_APPROX_NONE);
+    vector<vector<Point>> contours_ROI(2); //感兴趣区域的边界(1是左侧,2是右侧)
+    Rect rect[2];                          //感兴趣边界最小包围矩形
+    int num_ROI = 0;                       //感兴趣区域边界数量
     for (int i = 0; i < contours.size(); i++)
     {
-        Moments mu = moments(contours[i]); //图像矩
-        if (mu.m00 > 5000)                 //排除小轮廓
+        Moments mu = moments(contours[i]);      //图像矩
+        if (mu.m00 > 100000 && mu.m00 < 500000) //排除小轮廓
         {
-            double pery = arcLength(contours[i], true);                     //多边形周长
-            approxPolyDP(contours[i], contours_ploy[i], 0.04 * pery, true); //多边形边缘拟合
-            string shape = "unidentified";
-            if (contours_ploy[i].size() == 3)
-                shape = "triangle";
-            else if (contours_ploy[i].size() == 4)
-                shape = "rectangle";
-            else if (contours_ploy[i].size() == 5)
-                shape = "pentagon";
-            else
-                shape = "circle";
-            // 正方形则显示内部颜色信息
-            if (shape == "rectangle")
-            {
-                contours_rectangle[num_rec] = contours[i];
-
-                Mat src_HSV = Mat(src.rows, src.cols, CV_8UC3);
-                cvtColor(src_blur, src_HSV, CV_BGR2HSV);                // BGR转化为HSV空间
-                int k = 0, w = 0, r = 0, ye = 0, g = 0, b = 0, sum = 0; // 黑，白，红，黄，绿，蓝
-                for (int x = 0; x < src.rows; x++)
-                {
-                    for (int y = 0; y < src.cols; y++)
-                    {
-                        double distance = pointPolygonTest(contours[i], Point2f(x, y), true); //判断点是否在轮廓内部
-                        if (distance >= 0)
-                        {
-                            int H = src_HSV.at<Vec3b>(x, y)[0];
-                            int S = src_HSV.at<Vec3b>(x, y)[1];
-                            int V = src_HSV.at<Vec3b>(x, y)[2];
-                            if (V >= 0 && V <= 46)
-                                k++;
-                            else if (S >= 0 && S <= 43 && V >= 46 && V <= 255)
-                                w++;
-                            else if ((H >= 0 && H <= 10) || (H >= 125 && H <= 180))
-                                r++;
-                            else if (H >= 11 && H <= 33)
-                                ye++;
-                            else if (H >= 34 && H <= 90)
-                                g++;
-                            else if (H >= 91 && H <= 124)
-                                b++;
-                            //printf("%d,%d,%d\n",H,S,V);
-                        }
-                    }
-                }
-                char color = 0;
-                double max_color = max(k, max(w, max(r, max(ye, max(g, b)))));
-                if (int(max_color) == r)
-                    color = 'r';
-                else if (int(max_color) == ye)
-                    color = 'y';
-                else if (int(max_color) == g)
-                    color = 'g';
-                else if (int(max_color) == b)
-                    color = 'b';
-                else if (int(max_color) == k)
-                    color = 'k';
-                else if (int(max_color) == w)
-                    color = 'w';
-                rec_x[num_rec] = mu.m10 / mu.m00;
-                rec_y[num_rec] = mu.m01 / mu.m00;
-                rec[num_rec] = boundingRect(contours[i]);
-                rec_color[num_rec] = color;
-                flag = 1;
-                num_rec++;
-            }
+            contours_ROI[num_ROI] = contours[i];
+            rect[num_ROI] = boundingRect(contours[i]);
+            square_ROI[num_ROI] = rect[num_ROI].area();
+            printf("%d\n", square_ROI[num_ROI]);
+            center_ROI[num_ROI].x = (rect[num_ROI].tl().x + rect[num_ROI].br().x) / 2;
+            center_ROI[num_ROI].y = (rect[num_ROI].tl().y + rect[num_ROI].br().y) / 2;
+            printf("%d\n", center_ROI[num_ROI]);
+            num_ROI++;
         }
     }
-    if (flag == 1)
-    {
-        drawContours(src, contours_rectangle, -1, CV_RGB(255, 0, 0), 5); //绘制轮廓
-        imshow("src", src);
-    }
-    if (flag == 0)
-    {
-        imshow("src", src);
-    }
-    return num_rec;
+    drawContours(src, contours_ROI, -1, CV_RGB(0, 0, 255), 5); //绘制轮廓
+    namedWindow("src", 0);
+    resizeWindow("src", src.cols / 4, src.rows / 4);
+    imshow("src", src);
 }
