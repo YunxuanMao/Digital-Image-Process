@@ -22,12 +22,12 @@
 #include "sensor_msgs/Image.h"
 
 #define LINEAR_X 0.2
-#define Rotate_Z 0.3
+#define Rotate_Z 0.5
 #define N 10c0
-#define DIFF_center 50  //与中心的最大差值
-#define DIFF_square 2 //两者面积的最大相对差值
-#define S 1500 //ROI轮廓的阈值
-int ROI_GET(cv::Mat src, cv::Mat dst, int square_ROI[2], cv::Point center_ROI[2]);
+#define DIFF_center 50 //与中心的最大差值
+#define DIFF_square 2  //两者面积的最大相对差值
+#define S 1500         //ROI轮廓的阈值
+int ROI_GET(cv::Mat src, int square_ROI[2], cv::Point center_ROI[2]);
 
 using namespace cv;
 using namespace std;
@@ -51,13 +51,13 @@ int main(int argc, char **argv)
 
     ///////////////主函数/////////////
     VideoCapture capture;
-    capture.open(0); //打开zed相机
+    capture.open(1); //打开zed相机
 
     ROS_WARN("*****START");
     ros::init(argc, argv, "trafficLaneTrack"); //初始化ROS节点
     ros::NodeHandle n;
 
-    ros::Rate loop_rate(10);//定义速度发布频率
+    ros::Rate loop_rate(10);                                                        //定义速度发布频率
     ros::Publisher pub = n.advertise<geometry_msgs::Twist>("/smoother_cmd_vel", 5); //定义速度发布器
 
     if (!capture.isOpened())
@@ -79,110 +79,121 @@ int main(int argc, char **argv)
             break;
         }
 
-        Mat frIn = frame(cv::Rect(0, 0, frame.cols / 2, frame.rows));//截取zed的左目图片
+        Mat frIn = frame(cv::Rect(0, 0, frame.cols / 2, frame.rows)); //截取zed的左目图片
         //Mat frIn = frame(cv::Rect(0, 0, frame.cols, frame.rows)); //电脑摄像头
-	imshow("org",frIn);
+        imshow("org", frIn);
 
         /////////寻找ROI////////
-        Mat dst = Mat(frIn.rows, frIn.cols, CV_8UC3);
-	
         int square_ROI[2];
         Point center_ROI[2];
-        int num_ROI = ROI_GET(frIn, dst, square_ROI, center_ROI);
+        int num_ROI = ROI_GET(frIn, square_ROI, center_ROI);
         int diff_center = 0;
         for (int i = 0; i < 2; i++)
         {
-            diff_center += center_ROI[i].x / 2;
+            diff_center += center_ROI[i].x / 2; //两个柱子的中点
         }
         diff_center = diff_center - frIn.cols / 2; //两个柱子中点与图像中心的距离, 正表示在中心右侧, 负表示在左侧
-        double diff_square = double(square_ROI[1] - square_ROI[0])/double(square_ROI[1]);
+        double diff_square = double(square_ROI[1] - square_ROI[0]) / double(square_ROI[1]);
         //printf("%dx%d\n", src.cols, src.rows);
         printf("diff_center=%d\n", diff_center);
-	printf("diff_square=%f\n", diff_square);
+        printf("diff_square=%f\n", diff_square);
 
         geometry_msgs::Twist cmd_red;
 
-	if(num_ROI == 2)
-	{
-	    if( diff_center < -DIFF_center )
-	    {
-		// 车的速度值设置
-		cmd_red.linear.x = LINEAR_X;
-		cmd_red.linear.y = 0;
-		cmd_red.linear.z = 0;
-		cmd_red.angular.x = 0;
-		cmd_red.angular.y = 0;
-		cmd_red.angular.z = Rotate_Z;
-		printf("Turn left...\n");
-	    }
-	    else if(diff_center > DIFF_center)
-	    {
-		// 车的速度值设置
-		cmd_red.linear.x = LINEAR_X;
-		cmd_red.linear.y = 0;
-		cmd_red.linear.z = 0;
-		cmd_red.angular.x = 0;
-		cmd_red.angular.y = 0;
-		cmd_red.angular.z = -Rotate_Z;
-		printf("Turn right...\n");
-	    }
-	    else if(diff_square > DIFF_square)
-	    {
-		// 车的速度值设置
-		cmd_red.linear.x = LINEAR_X;
-		cmd_red.linear.y = 0;
-		cmd_red.linear.z = 0;
-		cmd_red.angular.x = 0;
-		cmd_red.angular.y = 0;
-		cmd_red.angular.z = -Rotate_Z;
-		printf("Turn right...\n");
-	    }
-	    else if(diff_square < -DIFF_square)
-	    {
-		// 车的速度值设置
-		cmd_red.linear.x = LINEAR_X;
-		cmd_red.linear.y = 0;
-		cmd_red.linear.z = 0;
-		cmd_red.angular.x = 0;
-		cmd_red.angular.y = 0;
-		cmd_red.angular.z = Rotate_Z;
-	        printf("Turn left...\n");
-	    }
-	    else
-	    {
-	        printf("Move forward...\n");
-	    }
+        static int flag = 0; //判断是否已经找到门
 
-	    pub.publish(cmd_red);
+        if (num_ROI == 2)
+        {
+            int rotate_z = -Rotate_Z * diff_center / frIn.cols; //diff_center负表示在左侧, 左转速度参量为正
 
-	    ros::spinOnce();
-	    //		loop_rate.sleep();
-	    waitKey(50);
+            if (flag == 0)
+                printf("Door located!");
+            flag = 1; //门已经被找到
+            printf("Go to the door...");
+            // 车的速度值设置
+            cmd_red.linear.x = LINEAR_X;
+            cmd_red.linear.y = 0;
+            cmd_red.linear.z = 0;
+            cmd_red.angular.x = 0;
+            cmd_red.angular.y = 0;
+            cmd_red.angular.z = rotate_z;
 
-	    // 车的速度值设置
-	    cmd_red.linear.x = LINEAR_X;
-	    cmd_red.linear.y = 0;
-	    cmd_red.linear.z = 0;
-	    cmd_red.angular.x = 0;
-	    cmd_red.angular.y = 0;
-	    cmd_red.angular.z = 0;
-	}
-	else 
-	{
-	    cmd_red.linear.x = 0.1;
-	    cmd_red.linear.y = 0;
-	    cmd_red.linear.z = 0;
-	    cmd_red.angular.x = 0;
-	    cmd_red.angular.y = 0;
-	    cmd_red.angular.z = 0;
-	}
+            pub.publish(cmd_red);
+            ros::spinOnce();
+            //		loop_rate.sleep();
+            waitKey(50);
 
-	    pub.publish(cmd_red);
+            // 车的速度值设置
+            cmd_red.linear.x = LINEAR_X;
+            cmd_red.linear.y = 0;
+            cmd_red.linear.z = 0;
+            cmd_red.angular.x = 0;
+            cmd_red.angular.y = 0;
+            cmd_red.angular.z = 0;
+        }
+        else if (num_ROI = 1)
+        {
+            diff_center = center_ROI[0] - frIn.cols / 2;
+            if (flag == 0) //未找到门
+            {
+                if (center_ROI < 0) //门在左边
+                {
+                    cmd_red.linear.x = 0.1;
+                    cmd_red.linear.y = 0;
+                    cmd_red.linear.z = 0;
+                    cmd_red.angular.x = 0;
+                    cmd_red.angular.y = 0;
+                    cmd_red.angular.z = 0.3;
+                }
+                else
+                {
+                    cmd_red.linear.x = 0.1;
+                    cmd_red.linear.y = 0;
+                    cmd_red.linear.z = 0;
+                    cmd_red.angular.x = 0;
+                    cmd_red.angular.y = 0;
+                    cmd_red.angular.z = -0.3;
+                }
+            }
+            else //已经找到门
+            {
+                if (center_ROI < 0) //门在右边
+                {
+                    cmd_red.linear.x = 0.1;
+                    cmd_red.linear.y = 0;
+                    cmd_red.linear.z = 0;
+                    cmd_red.angular.x = 0;
+                    cmd_red.angular.y = 0;
+                    cmd_red.angular.z = -0.3;
+                }
+                else
+                {
+                    cmd_red.linear.x = 0.1;
+                    cmd_red.linear.y = 0;
+                    cmd_red.linear.z = 0;
+                    cmd_red.angular.x = 0;
+                    cmd_red.angular.y = 0;
+                    cmd_red.angular.z = 0.3;
+                }
+            }
+        }
+        else
+        {
+            printf("Finding doors...");
+            flag = 0;
+            cmd_red.linear.x = 0;
+            cmd_red.linear.y = 0;
+            cmd_red.linear.z = 0;
+            cmd_red.angular.x = 0;
+            cmd_red.angular.y = 0;
+            cmd_red.angular.z = 0.2;
+        }
 
-	    ros::spinOnce();
-	    //		loop_rate.sleep();
-	    waitKey(500);
-        
+        pub.publish(cmd_red);
+
+        ros::spinOnce();
+        //		loop_rate.sleep();
+        waitKey(100);
     }
 
     return 0;
@@ -193,7 +204,7 @@ int main(int argc, char **argv)
 // 输入图像: src, 输出图像: dst
 // 感兴趣区域面积: square_ROI[2]
 // 感兴趣区域中点坐标: center_ROI[2]
-int ROI_GET(cv::Mat src, cv::Mat dst, int square_ROI[2], Point center_ROI[2])
+int ROI_GET(cv::Mat src, int square_ROI[2], Point center_ROI[2])
 {
     /////////////高斯滤波////////////
     Mat src_blur = Mat(src.rows, src.cols, CV_8UC3);
@@ -212,16 +223,16 @@ int ROI_GET(cv::Mat src, cv::Mat dst, int square_ROI[2], Point center_ROI[2])
     //resizeWindow("mask", src.cols / 4, src.rows / 4);
     imshow("mask", mask);
     /////////////边缘检测////////////
-    vector<vector<Point> > contours; //边缘点
+    vector<vector<Point>> contours; //边缘点
     vector<Vec4i> hierarchy;        //图像拓扑信息
     findContours(mask, contours, hierarchy, CV_RETR_CCOMP, CV_CHAIN_APPROX_NONE);
-    vector<vector<Point> > contours_ROI(2); //感兴趣区域的边界(1是左侧,2是右侧)
+    vector<vector<Point>> contours_ROI(2); //感兴趣区域的边界(1是左侧,2是右侧)
     Rect rect[2];                          //感兴趣边界最小包围矩形
-    int num_ROI = 0;                 
+    int num_ROI = 0;
     for (int i = 0; i < contours.size(); i++)
     {
-        Moments mu = moments(contours[i]);      //图像矩
-        if (mu.m00 > S && num_ROI < 2)// && mu.m00 < 500000) //排除小轮廓
+        Moments mu = moments(contours[i]); //图像矩
+        if (mu.m00 > S && num_ROI < 2)     // && mu.m00 < 500000) //排除小轮廓
         {
             contours_ROI[num_ROI] = contours[i];
             rect[num_ROI] = boundingRect(contours[i]);
@@ -233,10 +244,10 @@ int ROI_GET(cv::Mat src, cv::Mat dst, int square_ROI[2], Point center_ROI[2])
             num_ROI++; //感兴趣区域边界数量
         }
     }
-    printf("ROI=%d\n",num_ROI);
-    if(num_ROI == 2)
+    printf("ROI=%d\n", num_ROI);
+    if (num_ROI == 2)
     {
-    	drawContours(src, contours_ROI, -1, CV_RGB(0, 0, 255), 5); //绘制轮廓
+        drawContours(src, contours_ROI, -1, CV_RGB(0, 0, 255), 5); //绘制轮廓
     }
     //namedWindow("src", 0);
     //resizeWindow("src", src.cols / 4, src.rows / 4);
