@@ -21,10 +21,11 @@
 #include <geometry_msgs/Twist.h>
 #include "sensor_msgs/Image.h"
 
-#define LINEAR_X 0
+#define LINEAR_X 0.2
 #define N 100
 #define DIFF_center 100  //与中心的最大差值
 #define DIFF_square 0.1 //两者面积的最大相对差值
+#define S 100000 //ROI轮廓的阈值
 void ROI_GET(cv::Mat src, cv::Mat dst, int square_ROI[2], cv::Point center_ROI[2]);
 
 using namespace cv;
@@ -77,18 +78,85 @@ int main(int argc, char **argv)
             break;
         }
 
-        //Mat frIn = frame(cv::Rect(0, 0, frame.cols / 2, frame.rows));//截取zed的左目图片
-        Mat frIn = frame(cv::Rect(0, 0, frame.cols, frame.rows)); //电脑摄像头
+        Mat frIn = frame(cv::Rect(0, 0, frame.cols / 2, frame.rows));//截取zed的左目图片
+        //Mat frIn = frame(cv::Rect(0, 0, frame.cols, frame.rows)); //电脑摄像头
+
+        /////////寻找ROI////////
+        Mat dst = Mat(src.rows, src.cols, CV_8UC3);
+        int square_ROI[2];
+        int center_ROI[2];
+        ROI_GET(frIn, dst, square_ROI, center_ROI);
+        int diff = 0;
+        for (int i = 0; i < 2; i++)
+        {
+            diff_center += center_ROI[i] / 2;
+        }
+        diff_center = diff_center - src.cols / 2; //两个柱子中点与图像中心的距离, 正表示在中心右侧, 负表示在左侧
+        diff_square = square_ROI[1] - square_ROI[2];
+        printf("%dx%d\n", src.cols, src.rows);
+        printf("diff=%d\n", diff_center);
 
         geometry_msgs::Twist cmd_red;
 
+        if( diff_center < -DIFF_center )
+        {
+            // 车的速度值设置
+            cmd_red.linear.x = 0;
+            cmd_red.linear.y = 0;
+            cmd_red.linear.z = 0;
+            cmd_red.angular.x = 0;
+            cmd_red.angular.y = 0;
+            cmd_red.angular.z = 0.2;
+            printf("Turn left...");
+        }
+        else if(diff_center > DIFF_center)
+        {
+            // 车的速度值设置
+            cmd_red.linear.x = 0;
+            cmd_red.linear.y = 0;
+            cmd_red.linear.z = 0;
+            cmd_red.angular.x = 0;
+            cmd_red.angular.y = 0;
+            cmd_red.angular.z = -0.2;
+            printf("Turn right...");
+        }
+        else if(diff_square > DIFF_square)
+        {
+            // 车的速度值设置
+            cmd_red.linear.x = 0;
+            cmd_red.linear.y = 0;
+            cmd_red.linear.z = 0;
+            cmd_red.angular.x = 0;
+            cmd_red.angular.y = 0;
+            cmd_red.angular.z = -0.2;
+            printf("Turn right...");
+        }
+        else if(diff_square < -DIFF_square)
+        {
+            // 车的速度值设置
+            cmd_red.linear.x = 0;
+            cmd_red.linear.y = 0;
+            cmd_red.linear.z = 0;
+            cmd_red.angular.x = 0;
+            cmd_red.angular.y = 0;
+            cmd_red.angular.z = 0.2;
+            printf("Turn left...");
+        }
+        
+
+        pub.publish(cmd_red);
+
+        ros::spinOnce();
+        //		loop_rate.sleep();
+        waitKey(5);
+
         // 车的速度值设置
         cmd_red.linear.x = LINEAR_X;
-        cmd_red.linear.y = 0;
+        cmd_red.linear.y = 0.2;
         cmd_red.linear.z = 0;
         cmd_red.angular.x = 0;
         cmd_red.angular.y = 0;
-        cmd_red.angular.z = 0.2;
+        cmd_red.angular.z = 0;
 
         pub.publish(cmd_red);
 
@@ -120,8 +188,8 @@ void ROI_GET(cv::Mat src, cv::Mat dst, int square_ROI[2], Point center_ROI[2])
     inRange(src_hsv, Scalar(0, 100, 100), Scalar(10, 255, 255), mask1); //mask为二值化图像
     inRange(src_hsv, Scalar(156, 100, 100), Scalar(180, 255, 255), mask2);
     add(mask1, mask2, mask);
-    namedWindow("mask", 0);
-    resizeWindow("mask", src.cols / 4, src.rows / 4);
+    //namedWindow("mask", 0);
+    //resizeWindow("mask", src.cols / 4, src.rows / 4);
     imshow("mask", mask);
     /////////////边缘检测////////////
     vector<vector<Point>> contours; //边缘点
@@ -133,7 +201,7 @@ void ROI_GET(cv::Mat src, cv::Mat dst, int square_ROI[2], Point center_ROI[2])
     for (int i = 0; i < contours.size(); i++)
     {
         Moments mu = moments(contours[i]);      //图像矩
-        if (mu.m00 > 100000 && mu.m00 < 500000) //排除小轮廓
+        if (mu.m00 > S)// && mu.m00 < 500000) //排除小轮廓
         {
             contours_ROI[num_ROI] = contours[i];
             rect[num_ROI] = boundingRect(contours[i]);
@@ -146,7 +214,7 @@ void ROI_GET(cv::Mat src, cv::Mat dst, int square_ROI[2], Point center_ROI[2])
         }
     }
     drawContours(src, contours_ROI, -1, CV_RGB(0, 0, 255), 5); //绘制轮廓
-    namedWindow("src", 0);
-    resizeWindow("src", src.cols / 4, src.rows / 4);
+    //namedWindow("src", 0);
+    //resizeWindow("src", src.cols / 4, src.rows / 4);
     imshow("src", src);
 }
