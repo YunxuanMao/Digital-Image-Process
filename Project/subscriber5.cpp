@@ -34,23 +34,23 @@ using namespace std;
 int main(int argc, char **argv)
 {
     /////////////////静态测试///////////////
-    Mat src = imread("./src/image_pkg/src/turnright.jpg");
-    Mat dst = Mat(src.rows, src.cols, CV_8UC3);
-    int square_ROI[2];
-    int center_ROI[2];
-    ROI_GET(src, dst, square_ROI, center_ROI);
-    int diff = 0;
-    for (int i = 0; i < 2; i++)
-    {
-        diff += center_ROI[i] / 2;
-    }
-    diff = diff - src.cols / 2; //两个柱子中点与图像中心的距离, 正表示在中心右侧, 负表示在左侧
-    printf("%dx%d\n", src.cols, src.rows);
-    printf("diff=%d\n", diff);
+    //Mat src = imread("./src/image_pkg/src/turnright.jpg");
+    //Mat dst = Mat(src.rows, src.cols, CV_8UC3);
+    //int square_ROI[2];
+    //int center_ROI[2];
+    //ROI_GET(src, dst, square_ROI, center_ROI);
+    //int diff = 0;
+    //for (int i = 0; i < 2; i++)
+    //{
+    //    diff += center_ROI[i] / 2;
+    //}
+    //diff = diff - src.cols / 2; //两个柱子中点与图像中心的距离, 正表示在中心右侧, 负表示在左侧
+    //printf("%dx%d\n", src.cols, src.rows);
+    //printf("diff=%d\n", diff);
 
     ///////////////主函数/////////////
     VideoCapture capture;
-    capture.open(0); //打开zed相机
+    capture.open(1); //打开zed相机
 
     ROS_WARN("*****START");
     ros::init(argc, argv, "trafficLaneTrack"); //初始化ROS节点
@@ -82,18 +82,18 @@ int main(int argc, char **argv)
         //Mat frIn = frame(cv::Rect(0, 0, frame.cols, frame.rows)); //电脑摄像头
 
         /////////寻找ROI////////
-        Mat dst = Mat(src.rows, src.cols, CV_8UC3);
+        Mat dst = Mat(frIn.rows, frIn.cols, CV_8UC3);
         int square_ROI[2];
-        int center_ROI[2];
+        Point center_ROI[2];
         ROI_GET(frIn, dst, square_ROI, center_ROI);
-        int diff = 0;
+        int diff_center = 0;
         for (int i = 0; i < 2; i++)
         {
-            diff_center += center_ROI[i] / 2;
+            diff_center += center_ROI[i].x / 2;
         }
-        diff_center = diff_center - src.cols / 2; //两个柱子中点与图像中心的距离, 正表示在中心右侧, 负表示在左侧
-        diff_square = square_ROI[1] - square_ROI[2];
-        printf("%dx%d\n", src.cols, src.rows);
+        diff_center = diff_center - frIn.cols / 2; //两个柱子中点与图像中心的距离, 正表示在中心右侧, 负表示在左侧
+        int diff_square = (square_ROI[1] - square_ROI[2])/square_ROI[1];
+        //printf("%dx%d\n", src.cols, src.rows);
         printf("diff=%d\n", diff_center);
 
         geometry_msgs::Twist cmd_red;
@@ -107,7 +107,7 @@ int main(int argc, char **argv)
             cmd_red.angular.x = 0;
             cmd_red.angular.y = 0;
             cmd_red.angular.z = 0.2;
-            printf("Turn left...");
+            printf("Turn left...\n");
         }
         else if(diff_center > DIFF_center)
         {
@@ -118,7 +118,7 @@ int main(int argc, char **argv)
             cmd_red.angular.x = 0;
             cmd_red.angular.y = 0;
             cmd_red.angular.z = -0.2;
-            printf("Turn right...");
+            printf("Turn right...\n");
         }
         else if(diff_square > DIFF_square)
         {
@@ -129,7 +129,7 @@ int main(int argc, char **argv)
             cmd_red.angular.x = 0;
             cmd_red.angular.y = 0;
             cmd_red.angular.z = -0.2;
-            printf("Turn right...");
+            printf("Turn right...\n");
         }
         else if(diff_square < -DIFF_square)
         {
@@ -140,9 +140,12 @@ int main(int argc, char **argv)
             cmd_red.angular.x = 0;
             cmd_red.angular.y = 0;
             cmd_red.angular.z = 0.2;
-            printf("Turn left...");
+            printf("Turn left...\n");
         }
-        
+        else
+	{
+	    printf("Move forward...\n");
+	}
 
         pub.publish(cmd_red);
 
@@ -192,10 +195,10 @@ void ROI_GET(cv::Mat src, cv::Mat dst, int square_ROI[2], Point center_ROI[2])
     //resizeWindow("mask", src.cols / 4, src.rows / 4);
     imshow("mask", mask);
     /////////////边缘检测////////////
-    vector<vector<Point>> contours; //边缘点
+    vector<vector<Point> > contours; //边缘点
     vector<Vec4i> hierarchy;        //图像拓扑信息
     findContours(mask, contours, hierarchy, CV_RETR_CCOMP, CV_CHAIN_APPROX_NONE);
-    vector<vector<Point>> contours_ROI(2); //感兴趣区域的边界(1是左侧,2是右侧)
+    vector<vector<Point> > contours_ROI(2); //感兴趣区域的边界(1是左侧,2是右侧)
     Rect rect[2];                          //感兴趣边界最小包围矩形
     int num_ROI = 0;                       //感兴趣区域边界数量
     for (int i = 0; i < contours.size(); i++)
@@ -209,7 +212,7 @@ void ROI_GET(cv::Mat src, cv::Mat dst, int square_ROI[2], Point center_ROI[2])
             printf("%d\n", square_ROI[num_ROI]);
             center_ROI[num_ROI].x = (rect[num_ROI].tl().x + rect[num_ROI].br().x) / 2;
             center_ROI[num_ROI].y = (rect[num_ROI].tl().y + rect[num_ROI].br().y) / 2;
-            printf("%d\n", center_ROI[num_ROI]);
+            //printf("%d\n", center_ROI[num_ROI]);
             num_ROI++;
         }
     }
