@@ -104,7 +104,7 @@ int main(int argc, char **argv)
 
         if (num_ROI == 2)
         {
-            int rotate_z = -Rotate_Z * diff_center / frIn.cols; //diff_center负表示在左侧, 左转速度参量为正
+            double rotate_z = -double(Rotate_Z * diff_center) / double(frIn.cols); //diff_center负表示在左侧, 左转速度参量为正
 
             if (flag == 0)
                 printf("Door located!");
