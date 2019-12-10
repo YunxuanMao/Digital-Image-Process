@@ -23,7 +23,7 @@
 
 #define LINEAR_X 0.2
 #define Rotate_Z 0.5
-#define N 10c0
+#define N 100
 #define DIFF_center 50 //与中心的最大差值
 #define DIFF_square 2  //两者面积的最大相对差值
 #define S 1500         //ROI轮廓的阈值
@@ -104,7 +104,7 @@ int main(int argc, char **argv)
 
         if (num_ROI == 2)
         {
-            double rotate_z = -double(Rotate_Z * diff_center) / double(frIn.cols); //diff_center负表示在左侧, 左转速度参量为正
+            double rotate_z = double(-Rotate_Z * diff_center) / double(frIn.cols); //diff_center负表示在左侧, 左转速度参量为正
 
             if (flag == 0)
                 printf("Door located!");
@@ -116,7 +116,7 @@ int main(int argc, char **argv)
             cmd_red.linear.z = 0;
             cmd_red.angular.x = 0;
             cmd_red.angular.y = 0;
-            cmd_red.angular.z = rotate_z;
+            cmd_red.angular.z = Rotate_z;
 
             pub.publish(cmd_red);
             ros::spinOnce();
@@ -216,7 +216,7 @@ int ROI_GET(cv::Mat src, int square_ROI[2], Point center_ROI[2])
     Mat mask1 = Mat(src.rows, src.cols, CV_8U);
     Mat mask2 = Mat(src.rows, src.cols, CV_8U);
     Mat mask = Mat(src.rows, src.cols, CV_8U);
-    inRange(src_hsv, Scalar(0, 43, 43), Scalar(10, 255, 255), mask1); //mask为二值化图像
+    inRange(src_hsv, Scalar(0, 43, 43), Scalar(50, 255, 255), mask1); //mask为二值化图像
     inRange(src_hsv, Scalar(156, 43, 43), Scalar(180, 255, 255), mask2);
     add(mask1, mask2, mask);
     //namedWindow("mask", 0);
